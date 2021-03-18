@@ -19,6 +19,12 @@ func main() {
 		collectCmd,
 		exportCmd,
 	}
+	app.Flags = []cli.Flag{
+		cli.BoolFlag{
+			Name:  "debug",
+			Usage: "enable debug output",
+		},
+	}
 	if err := app.Run(os.Args); err != nil {
 		logrus.Fatal(err)
 	}

@@ -37,6 +37,10 @@ var collectCmd = cli.Command{
 		if addr == "" {
 			return errors.New("address of exporter must be provided")
 		}
+		logrus.SetLevel(logrus.ErrorLevel)
+		if context.GlobalBool("debug") {
+			logrus.SetLevel(logrus.DebugLevel)
+		}
 		signalC := make(chan os.Signal, 1024)
 		signal.Notify(signalC, handledSignals...)
 		done := handleSignals(signalC)

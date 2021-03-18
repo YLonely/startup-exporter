@@ -89,6 +89,10 @@ var exportCmd = cli.Command{
 		if port == "" {
 			return errors.New("port must be provided")
 		}
+		logrus.SetLevel(logrus.ErrorLevel)
+		if context.GlobalBool("debug") {
+			logrus.SetLevel(logrus.DebugLevel)
+		}
 		clientCmdConfig, err := clientcmd.BuildConfigFromFlags(context.String("master"), context.String("kubeconfig"))
 		if err != nil {
 			return err
