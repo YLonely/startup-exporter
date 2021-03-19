@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -44,24 +43,12 @@ type meta struct {
 
 var (
 	allInfo                     = map[meta]containerStartupInfo{}
-	updatedDeploy               = map[meta]map[string]struct{}{}
 	mu                          sync.Mutex
 	deployPodsAvgStartupLatency = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: metricsNamespace,
 			Subsystem: metricsSubsystemPod,
 			Name:      "average_startup_latency_milliseconds",
-		},
-		[]string{
-			"deploy_name",
-			"namespace",
-		},
-	)
-	deployScaleLatency = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: metricsNamespace,
-			Subsystem: metricsSubsystemDeploy,
-			Name:      "scale_latency_milliseconds",
 		},
 		[]string{
 			"deploy_name",
@@ -164,6 +151,7 @@ func updateDeployScaleLatency(kubeClient *kubernetes.Clientset, done <-chan stru
 	ticker := time.NewTicker(2 * time.Second)
 	stop := false
 	for {
+		deployPodsAvgStartupLatency.Reset()
 		deployments, err := deploymentLister.List(labels.Everything())
 		if err != nil {
 			logrus.WithError(err).Error("failed to list deployments in the cluster")
@@ -187,7 +175,6 @@ func updateDeployScaleLatency(kubeClient *kubernetes.Clientset, done <-chan stru
 						logrus.Error(err)
 					} else if updated {
 						logrus.Debugf("update deployment %s(%s) successfully", d.Name, d.Namespace)
-						updatedDeploy[m] = getPodNames(pods)
 					}
 				}
 			}
@@ -203,21 +190,10 @@ func updateDeployScaleLatency(kubeClient *kubernetes.Clientset, done <-chan stru
 	}
 }
 
-func getPodNames(pods []*corev1.Pod) map[string]struct{} {
-	podNames := map[string]struct{}{}
-	for _, p := range pods {
-		if p != nil {
-			podNames[p.Name] = struct{}{}
-		}
-	}
-	return podNames
-}
-
 func shouldUpdate(m meta, currentPods []*corev1.Pod) bool {
 	if len(currentPods) == 0 {
 		return false
 	}
-	currentPodNames := map[string]struct{}{}
 	for _, p := range currentPods {
 		if p != nil {
 			if len(p.Status.ContainerStatuses) == 0 {
@@ -229,23 +205,6 @@ func shouldUpdate(m meta, currentPods []*corev1.Pod) bool {
 					return false
 				}
 			}
-			currentPodNames[p.Name] = struct{}{}
-		}
-	}
-	lastPodNames, exists := updatedDeploy[m]
-	if !exists {
-		return true
-	}
-	return !equal(lastPodNames, currentPodNames)
-}
-
-func equal(a, b map[string]struct{}) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k := range a {
-		if _, exists := b[k]; !exists {
-			return false
 		}
 	}
 	return true
@@ -255,19 +214,12 @@ func doUpdate(deploy *appsv1.Deployment, pods []*corev1.Pod) (bool, error) {
 	var (
 		targetLen       = 0
 		total           float64
-		startTimestamp  int64 = math.MaxInt64
-		endTimestamp    int64 = 0
 		unreceivedNames []string
 		name            string
-		lastPodNames    = map[string]struct{}{}
 	)
-	if l, exists := updatedDeploy[meta{name: deploy.Name, namespace: deploy.Namespace}]; exists {
-		lastPodNames = l
-	}
 	for _, p := range pods {
 		if p != nil {
 			targetLen += len(p.Spec.Containers)
-			_, oldPod := lastPodNames[p.Name]
 			for _, c := range p.Status.ContainerStatuses {
 				if strings.HasPrefix(c.ContainerID, containerNamePrefix) {
 					name = strings.TrimPrefix(c.ContainerID, containerNamePrefix)
@@ -276,14 +228,6 @@ func doUpdate(deploy *appsv1.Deployment, pods []*corev1.Pod) (bool, error) {
 				}
 				mu.Lock()
 				if info, exists := allInfo[meta{name: name, namespace: defaultContainerdK8sNamespace}]; exists {
-					if !oldPod {
-						if info.Start < startTimestamp {
-							startTimestamp = info.Start
-						}
-						if info.End > endTimestamp {
-							endTimestamp = info.End
-						}
-					}
 					total += float64(info.End - info.Start)
 				} else {
 					unreceivedNames = append(unreceivedNames, containerShortName(name))
@@ -303,10 +247,6 @@ func doUpdate(deploy *appsv1.Deployment, pods []*corev1.Pod) (bool, error) {
 	avg := total / float64(receivedLen)
 	logrus.Debugf("update average startup latency of deployment %s(%s) to %v", deploy.Name, deploy.Namespace, avg)
 	deployPodsAvgStartupLatency.WithLabelValues(deploy.Name, deploy.Namespace).Set(avg)
-	if endTimestamp > startTimestamp {
-		logrus.Debugf("update scale latency of deployment %s(%s) to %d", deploy.Name, deploy.Namespace, endTimestamp-startTimestamp)
-		deployScaleLatency.WithLabelValues(deploy.Name, deploy.Namespace).Set(float64(endTimestamp - startTimestamp))
-	}
 	return true, nil
 }
 
