@@ -55,6 +55,17 @@ var (
 			"namespace",
 		},
 	)
+	currentStartupLatency = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: metricsNamespace,
+			Subsystem: metricsSubsystemPod,
+			Name:      "current_startup_latency",
+		},
+		[]string{
+			"type",
+			"namespace",
+		},
+	)
 )
 
 var exportCmd = cli.Command{
@@ -125,6 +136,7 @@ func receiveStartupInfo(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	currentStartupLatency.WithLabelValues(info.Type, info.Namespace).Set(float64(info.End - info.Start))
 	mu.Lock()
 	defer mu.Unlock()
 	m := meta{

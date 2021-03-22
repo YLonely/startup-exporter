@@ -37,6 +37,9 @@ var collectCmd = cli.Command{
 		if addr == "" {
 			return errors.New("address of exporter must be provided")
 		}
+		if !strings.HasPrefix(addr, "http") {
+			addr = "http://" + addr
+		}
 		logrus.SetLevel(logrus.ErrorLevel)
 		if context.GlobalBool("debug") {
 			logrus.SetLevel(logrus.DebugLevel)
@@ -134,11 +137,16 @@ func collect(namespace string) []containerStartupInfo {
 		if end == 0 {
 			continue
 		}
+		t := typeDefault
+		if _, err := os.Stat(path.Join(namespace, dir.Name(), "restore.log")); err == nil {
+			t = typeCheckpoint
+		}
 		info = append(info, containerStartupInfo{
 			Name:      dir.Name(),
 			Namespace: namespace,
 			Start:     int64(start),
 			End:       int64(end),
+			Type:      t,
 		})
 	}
 	return info
