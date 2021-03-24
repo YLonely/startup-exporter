@@ -138,7 +138,7 @@ func collect(namespace string) []containerStartupInfo {
 			continue
 		}
 		t := typeDefault
-		if _, err := os.Stat(path.Join(namespace, dir.Name(), "restore.log")); err == nil {
+		if _, err := os.Stat(path.Join(namespace, dir.Name(), "work", "restore.log")); err == nil {
 			t = typeCheckpoint
 		}
 		info = append(info, containerStartupInfo{

@@ -136,9 +136,9 @@ func receiveStartupInfo(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	currentStartupLatency.WithLabelValues(info.Type, info.Namespace).Set(float64(info.End - info.Start))
 	mu.Lock()
 	defer mu.Unlock()
+	currentStartupLatency.WithLabelValues(info.Type, info.Namespace).Set(float64(info.End - info.Start))
 	m := meta{
 		name:      info.Name,
 		namespace: info.Namespace,
